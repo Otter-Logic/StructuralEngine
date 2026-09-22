@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>OtterLogic.StructuralEngine</RootNamespace>
+    <AssemblyName>OtterLogic.StructuralEngine</AssemblyName>
+    <!-- The shared structural base: how a stick model is read, before any tool
+         has an opinion about it. Points weld into joints, lines chain into
+         physical members, members triangulate into assemblies, and every
+         element's weight drains to the supports. What every structural toolkit
+         - StructuralDesign, Construction, Fabrication, BIM - needs, held once,
+         so a sequence, a connection schedule and an analysis can never disagree
+         about what rests on what.
+
+         The structural counterpart of OtterLogic.MachineLearning, and it sits
+         on that stack rather than beside it: the turn limit for chaining
+         members is learned from the model's own turns, and an assembly's frame
+         is its principal components. No UI, no Grasshopper, and no dependency on
+         any toolkit above it. It ships no components of its own. -->
+
+    <IsPackable>true</IsPackable>
+    <PackageId>OtterLogic.StructuralEngine</PackageId>
+    <Description>The shared structural base of the OtterLogic Rhino tools - reading a stick model as joints, physical members, assemblies and load paths, for every structural toolkit to build on.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Otter-Logic/StructuralEngine</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Otter-Logic/StructuralEngine</RepositoryUrl>
+    <PackageTags>rhino;rhino3d;grasshopper;computational-design;structural</PackageTags>
+
+  </PropertyGroup>
+
+  <!-- A sibling checkout wins; the published package is the fallback. Clone the
+       repos side by side and the inner loop is unchanged; CI has no siblings, so
+       it builds against the published packages. -->
+  <Choose>
+    <When Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\Unsupervised\src\OtterLogic.Unsupervised\OtterLogic.Unsupervised.csproj')">
+      <ItemGroup>
+        <ProjectReference Include="..\..\..\Unsupervised\src\OtterLogic.Unsupervised\OtterLogic.Unsupervised.csproj" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <ItemGroup>
+        <PackageReference Include="OtterLogic.Unsupervised" Version="[$(Version)]" />
+      </ItemGroup>
+    </Otherwise>
+  </Choose>
+
+</Project>
