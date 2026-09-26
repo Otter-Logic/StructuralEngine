@@ -106,6 +106,16 @@ public sealed class LoadPaths
     /// <summary>Per assembly, the share of the model's weight it hands straight to the supports, 0 to 1.</summary>
     public double[] ToGround { get; private init; } = null!;
 
+    /// <summary>
+    /// Every hand-over between members, joint by joint, before any is summed into
+    /// <see cref="HandOver"/>: which member delivers, which receives (-1 for the
+    /// ground), and the share of the model's weight handed. Members of one assembly
+    /// are included, the trickles too. This is what says where a member rests —
+    /// the joints it is held up at — which the assembly graph, summed over whole
+    /// bodies, cannot. Empty when nothing was traced.
+    /// </summary>
+    public IReadOnlyList<JointHandOver> JointHandOvers { get; private init; } = Array.Empty<JointHandOver>();
+
     public static LoadPaths Trace(StructureGraph structure, ElementGeometry geometry, PhysicalMembers members, Assemblies assemblies)
     {
         int n = structure.ElementCount;
@@ -230,6 +240,7 @@ public sealed class LoadPaths
         double negligible = 1e-9 * total;
         var handed = new Dictionary<(int From, int To), double>();
         var toGround = new double[assemblies.Count];
+        var byJoint = new List<(int Joint, int From, int To, double Amount)>();
 
         for (int j = 0; j < joints.Length; j++)
         {
@@ -260,11 +271,18 @@ public sealed class LoadPaths
 
                 int from = assemblies.Of[here[p]];
                 toGround[from] += -net[p] * ground / receiving;
+                if (ground > negligible)
+                    byJoint.Add((j, here[p], -1, -net[p] * ground / receiving));
 
                 for (int q = 0; q < here.Length; q++)
                 {
+                    if (net[q] <= negligible)
+                        continue;
+
+                    byJoint.Add((j, here[p], here[q], -net[p] * net[q] / receiving));
+
                     int to = assemblies.Of[here[q]];
-                    if (net[q] > negligible && to != from)
+                    if (to != from)
                         handed[(from, to)] = handed.GetValueOrDefault((from, to)) - net[p] * net[q] / receiving;
                 }
             }
@@ -323,6 +341,14 @@ public sealed class LoadPaths
             Tree = LoadTree.Build(structure, members, assemblies, stretches, graph, flow, injection, grounded),
             HandOver = handOver,
             ToGround = toGround.Select(amount => Math.Min(1.0, amount / whole)).ToArray(),
+            JointHandOvers = byJoint.Select(h => new JointHandOver(h.Joint, h.From, h.To, h.Amount / whole)).ToArray(),
         };
     }
 }
+
+/// <summary>One member handing weight to another, or to the ground, at one joint.</summary>
+/// <param name="Joint">Where.</param>
+/// <param name="From">The member delivering.</param>
+/// <param name="To">The member receiving, or -1 for the ground.</param>
+/// <param name="Share">The share of the model's weight handed, 0 to 1.</param>
+public readonly record struct JointHandOver(int Joint, int From, int To, double Share);

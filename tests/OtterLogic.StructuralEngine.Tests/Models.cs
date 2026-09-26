@@ -93,11 +93,11 @@ internal sealed class Models
     }
 
     /// <summary>The engine's whole reading of the model, stage by stage, as a toolkit would make it.</summary>
-    public Reading Read(double join = 0.01)
+    public Reading Read(double join = 0.01, bool withSupports = true)
     {
         var (starts, ends) = ModelInput.CheckLines(Rows(_starts), Rows(_ends));
         var none = Array.Empty<double[,]>();
-        var supports = _supports.Count > 0 ? Rows(_supports) : null;
+        var supports = withSupports && _supports.Count > 0 ? Rows(_supports) : null;
         var structure = StructureGraph.Build(starts, ends, none, supports, join);
         var geometry = ElementGeometry.Measure(starts, ends, none);
         var members = PhysicalMembers.Read(structure, geometry);
@@ -114,6 +114,9 @@ internal sealed class Models
         public int Level(int element) => Paths.Level[Assemblies.Of[Members.Of[element]]];
 
         public LoadTree Tree => Paths.Tree;
+
+        /// <summary>The pieces the runs are made in.</summary>
+        public Pieces Pieces() => StructuralEngine.Pieces.Cut(Structure, Geometry, Members, Assemblies, Paths);
 
         /// <summary>An element's assembly.</summary>
         public int Assembly(int element) => Assemblies.Of[Members.Of[element]];

@@ -5,7 +5,7 @@ namespace OtterLogic.StructuralEngine;
 /// and ends of equal count, surfaces as rings of at least three corners, and every
 /// coordinate is a finite number in three columns.
 /// <para>
-/// Held once so the Insight engine, the sequencer and the connection tools refuse
+/// Held once so Section Groups, the sequencer and the connection tools refuse
 /// the same input with the same sentence. Refused with a reason, never repaired:
 /// a repaired model is one the user did not draw.
 /// </para>

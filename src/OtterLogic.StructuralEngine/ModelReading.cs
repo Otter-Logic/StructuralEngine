@@ -49,12 +49,12 @@ public sealed record ModelReadingOptions
 /// element, one row per member.
 /// <para>
 /// Every toolkit was making this reading for itself, stage by stage, in the same
-/// order: the Insight engine, the sequencer and the connection tools each call
+/// order: Section Groups, the sequencer and the connection tools each call
 /// <see cref="StructureGraph.Build"/>, then <see cref="ElementGeometry.Measure"/>,
 /// then the members, the assemblies and the paths. This holds the sequence once,
 /// so a toolkit or a component that wants the reading and nothing else — a table
 /// to train on, a level per element, a member per line — gets it in one call and
-/// gets exactly what the Insight engine reads.
+/// gets exactly what Section Groups reads.
 /// </para>
 /// <para>
 /// It answers nothing. Which groups the members fall into, what order they go up
@@ -82,6 +82,9 @@ public sealed class ModelReading
 
     /// <summary>Where the weight goes on its way to the supports.</summary>
     public LoadPaths Paths { get; private init; } = null!;
+
+    /// <summary>The pieces each run is made in: cut where it rests on something part of the way along.</summary>
+    public Pieces Pieces { get; private init; } = null!;
 
     /// <summary>The load path as a tree from every joint to a support: parents, tributary loads, resistance, cantilevers. The same object as <see cref="LoadPaths.Tree"/>.</summary>
     public LoadTree Tree => Paths.Tree;
@@ -150,6 +153,7 @@ public sealed class ModelReading
         var members = PhysicalMembers.Read(structure, geometry, chain: options.ChainMembers);
         var assemblies = Assemblies.Read(structure, members);
         var paths = LoadPaths.Trace(structure, geometry, members, assemblies);
+        var pieces = Pieces.Cut(structure, geometry, members, assemblies, paths);
         var regions = Regions.Read(members);
         var supportDistance = StructuralEngine.ElementFeatures.SupportDistances(structure);
         var centrality = Graphs.Centrality.Betweenness(structure.Elements);
@@ -192,6 +196,7 @@ public sealed class ModelReading
             Members = members,
             Assemblies = assemblies,
             Paths = paths,
+            Pieces = pieces,
             Regions = regions,
             SupportDistance = supportDistance,
             Centrality = centrality,

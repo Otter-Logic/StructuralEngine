@@ -10,7 +10,7 @@ namespace OtterLogic.StructuralEngine;
 /// <para>
 /// Here rather than in a toolkit because every column is a reading, not an
 /// opinion — something measurable on any stick or surface model, and none of them
-/// says what an element <em>is</em>. The Insight engine clusters on them, a
+/// says what an element <em>is</em>. Section Groups reads them, a
 /// trained model reads them as inputs, and a fabricator estimating hours wants
 /// the same row; each computing its own would be three tables that drift. Moved
 /// down from StructuralDesign in 2026-09 with no column changing place, so a

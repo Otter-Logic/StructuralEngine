@@ -4,7 +4,7 @@ namespace OtterLogic.StructuralEngine.Tests;
 
 /// <summary>
 /// The whole reading in one call, and the two tables it lays out into: the
-/// element table is the one the Insight engine clusters on, column for column,
+/// element table is the one Section Groups reads its role features from, column for column,
 /// and the member table says of a column what an engineer would.
 /// </summary>
 public class ModelReadingTests
