@@ -87,6 +87,21 @@ public class ModelReadingTests
         Assert.Equal(2.0, rows[beam, Column("Elements")]);
         Assert.Equal(1.0, rows[beam, Column("Level")]);
         Assert.Equal(4.0, rows[beam, Column("Support Distance")], 9);
+
+        // The load tree: the column carries and stands on the ground, the beam carries nothing through and is a storey of resistance up.
+        Assert.Equal(1.0, rows[column, Column("On Load Path")]);
+        Assert.Equal(0.0, rows[column, Column("Path Resistance")], 9);
+        Assert.True(rows[column, Column("Tributary")] > rows[beam, Column("Tributary")]);
+        Assert.Equal(0.0, rows[beam, Column("On Load Path")]);
+        Assert.Equal(4.0, rows[beam, Column("Path Resistance")], 9);
+        Assert.Equal(0.0, rows[beam, Column("Cantilever")]);
+        Assert.Equal(0.0, rows[beam, Column("Stranded")]);
+
+        // The element table carries the same columns down every element of the member.
+        var features = reading.ElementFeatures();
+        int element = reading.Members.Elements[beam][0];
+        Assert.Equal(rows[beam, Column("Tributary")], features[element, ElementFeatures.Tributary], 9);
+        Assert.Equal(4.0, features[element, ElementFeatures.Resistance], 9);
     }
 
     [Fact]
@@ -99,6 +114,9 @@ public class ModelReadingTests
         var rows = reading.MemberFeatures();
         Assert.All(Enumerable.Range(0, reading.MemberCount), m => Assert.Equal(-1.0, rows[m, Column("Support Distance")]));
         Assert.All(Enumerable.Range(0, reading.MemberCount), m => Assert.Equal(-1.0, rows[m, Column("Level")]));
+        Assert.All(Enumerable.Range(0, reading.MemberCount), m => Assert.Equal(-1.0, rows[m, Column("Path Resistance")]));
+        Assert.All(Enumerable.Range(0, reading.MemberCount), m => Assert.Equal(0.0, rows[m, Column("Tributary")]));
+        Assert.False(reading.Tree.Traced);
         Assert.Contains(reading.Notes, note => note.Contains("No supports"));
     }
 

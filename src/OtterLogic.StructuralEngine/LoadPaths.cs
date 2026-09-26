@@ -34,8 +34,12 @@ namespace OtterLogic.StructuralEngine;
 /// Hand-overs are summed between assemblies, only the substantial ones kept, and the
 /// loops folded by <see cref="Condensation"/>: assemblies that lean on each other — a
 /// grillage, the layers of a space truss — share a level, and the level is how long a
-/// chain of hand-overs hangs below. Nothing resting on anything but the ground is
-/// level 0.
+/// chain of hand-overs hangs below. Anything with a substantial share of its weight
+/// going straight to the supports is level 0, whatever else it also rests on: a
+/// braced bay standing on its own feet is on the ground, even where its beam runs on
+/// to land on the next column, and a raking strut from the ground props the beam it
+/// meets rather than resting on it. Everything else is one level above the highest
+/// thing it substantially rests on.
 /// </para>
 /// </summary>
 public sealed class LoadPaths
@@ -77,13 +81,30 @@ public sealed class LoadPaths
     public double[] MemberFlow { get; private init; } = null!;
 
     /// <summary>
-    /// Per assembly, the hand-overs between it and the ground: 0 rests on the supports.
-    /// -1 when nothing was traced, or it reaches no support.
+    /// Per assembly, the hand-overs between it and the ground: 0 rests on the supports
+    /// itself, whatever else it also rests on. -1 when nothing was traced, or it
+    /// reaches no support.
     /// </summary>
     public int[] Level { get; private init; } = null!;
 
     /// <summary>The highest level found; -1 when nothing was traced.</summary>
     public int Levels { get; private init; } = -1;
+
+    /// <summary>The load path as a tree from every joint down to a support, and what reads off it.</summary>
+    public LoadTree Tree { get; private init; } = null!;
+
+    /// <summary>
+    /// A node per assembly, an arc from each to every assembly it hands weight to,
+    /// weighted by the share of the model's weight handed, 0 to 1. Every hand-over is
+    /// here, the trickles included; <see cref="Level"/> is counted over only those at
+    /// least <see cref="SubstantialShare"/> of the largest the same assembly makes.
+    /// Weight handed twice on its way down is counted at each hand-over, so the arcs
+    /// sum to more than one on a model with a hierarchy; <see cref="ToGround"/> sums to one.
+    /// </summary>
+    public DirectedGraph HandOver { get; private init; } = null!;
+
+    /// <summary>Per assembly, the share of the model's weight it hands straight to the supports, 0 to 1.</summary>
+    public double[] ToGround { get; private init; } = null!;
 
     public static LoadPaths Trace(StructureGraph structure, ElementGeometry geometry, PhysicalMembers members, Assemblies assemblies)
     {
@@ -94,6 +115,9 @@ public sealed class LoadPaths
             ElementFlow = new double[n],
             MemberFlow = new double[members.Count],
             Level = Enumerable.Repeat(-1, assemblies.Count).ToArray(),
+            Tree = LoadTree.Untraced(structure, members, assemblies),
+            HandOver = DirectedGraph.FromArcs(Math.Max(1, assemblies.Count), Array.Empty<(int, int)>()),
+            ToGround = new double[assemblies.Count],
         };
 
         var grounded = Enumerable.Range(0, joints.Length).Where(j => structure.Supported[j]).ToArray();
@@ -250,15 +274,43 @@ public sealed class LoadPaths
         foreach (var ((from, _), amount) in handed)
             largest[from] = Math.Max(largest[from], amount);
 
-        var order = Condensation.Of(assemblies.Count,
-            handed.Where(pair => pair.Value >= SubstantialShare * largest[pair.Key.From]).Select(pair => pair.Key));
+        var substantial = handed.Where(pair => pair.Value >= SubstantialShare * largest[pair.Key.From]).Select(pair => pair.Key).ToArray();
+        var order = Condensation.Of(assemblies.Count, substantial);
+
+        // A component's level: 0 where anything in it stands on the ground, else one
+        // above the highest component it hands to. Receivers come before givers in
+        // the topological order, so every level is settled before it is leant on.
+        var componentLevel = new int[order.ComponentCount];
+        var standing = new bool[order.ComponentCount];
+        for (int a = 0; a < assemblies.Count; a++)
+            if (toGround[a] >= SubstantialShare * largest[a] && toGround[a] > negligible)
+                standing[order.Component[a]] = true;
+
+        var successors = new HashSet<int>[order.ComponentCount];
+        foreach (var (from, to) in substantial)
+            if (order.Component[from] != order.Component[to])
+                (successors[order.Component[from]] ??= new HashSet<int>()).Add(order.Component[to]);
+
+        foreach (int a in order.TopologicalOrder())
+        {
+            int c = order.Component[a];
+            componentLevel[c] = standing[c] || successors[c] is null ? 0 : 1 + successors[c].Max(below => componentLevel[below]);
+        }
 
         var level = new int[assemblies.Count];
         for (int a = 0; a < assemblies.Count; a++)
         {
             bool reaches = assemblies.Members[a].Any(m => members.Run[m].Any(j => flow.Reached[j]));
-            level[a] = reaches ? order.HeightOf(a) : -1;
+            level[a] = reaches ? componentLevel[order.Component[a]] : -1;
         }
+
+        // Shares of everything that drains, the weight lumped at the supports
+        // included, so what reaches the ground sums to one.
+        double whole = Enumerable.Range(0, joints.Length).Where(j => flow.Reached[j]).Sum(j => injection[j]);
+        var handOver = DirectedGraph.FromArcs(
+            Math.Max(1, assemblies.Count),
+            handed.Where(pair => pair.Value > negligible).Select(pair => (pair.Key.From, pair.Key.To, pair.Value / whole)),
+            DuplicateArcs.Sum);
 
         return new LoadPaths
         {
@@ -268,6 +320,9 @@ public sealed class LoadPaths
             MemberFlow = memberFlow,
             Level = level,
             Levels = level.Max(),
+            Tree = LoadTree.Build(structure, members, assemblies, stretches, graph, flow, injection, grounded),
+            HandOver = handOver,
+            ToGround = toGround.Select(amount => Math.Min(1.0, amount / whole)).ToArray(),
         };
     }
 }

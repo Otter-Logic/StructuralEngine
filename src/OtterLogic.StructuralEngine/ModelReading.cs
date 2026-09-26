@@ -44,8 +44,9 @@ public sealed record ModelReadingOptions
 
 /// <summary>
 /// The engine's whole reading of a model in one call: joints, geometry, members,
-/// assemblies, load paths, support distances, centrality and orientation, and the
-/// two tables they lay out into — one row per element, one row per member.
+/// assemblies, load paths and the tree they draw, regions, support distances,
+/// centrality and orientation, and the two tables they lay out into — one row per
+/// element, one row per member.
 /// <para>
 /// Every toolkit was making this reading for itself, stage by stage, in the same
 /// order: the Insight engine, the sequencer and the connection tools each call
@@ -81,6 +82,12 @@ public sealed class ModelReading
 
     /// <summary>Where the weight goes on its way to the supports.</summary>
     public LoadPaths Paths { get; private init; } = null!;
+
+    /// <summary>The load path as a tree from every joint to a support: parents, tributary loads, resistance, cantilevers. The same object as <see cref="LoadPaths.Tree"/>.</summary>
+    public LoadTree Tree => Paths.Tree;
+
+    /// <summary>Where the member graph nearly comes apart, and what each member holds together.</summary>
+    public Regions Regions { get; private init; } = null!;
 
     /// <summary>Per element, route length along the elements to the nearest support: infinity with no route, NaN with no supports.</summary>
     public double[] SupportDistance { get; private init; } = null!;
@@ -143,6 +150,7 @@ public sealed class ModelReading
         var members = PhysicalMembers.Read(structure, geometry, chain: options.ChainMembers);
         var assemblies = Assemblies.Read(structure, members);
         var paths = LoadPaths.Trace(structure, geometry, members, assemblies);
+        var regions = Regions.Read(members);
         var supportDistance = StructuralEngine.ElementFeatures.SupportDistances(structure);
         var centrality = Graphs.Centrality.Betweenness(structure.Elements);
 
@@ -172,6 +180,10 @@ public sealed class ModelReading
                 + string.Join(", ", structure.StrandedSupports) + ".");
         if (!double.IsNaN(members.TurnLimit))
             notes.Add($"Lines turning less than {members.TurnLimit:0.#} degrees at a joint were read as one member.");
+        if (paths.Tree.Traced && paths.Tree.MemberCantilever.Any(c => c))
+            notes.Add($"{paths.Tree.MemberCantilever.Count(c => c)} member(s) are held up through a single joint and read as cantilevers.");
+        if (regions.Found && !regions.Converged)
+            notes.Add("The region reading stopped short of its tolerance, so Region and Cut Proximity are approximate.");
 
         return new ModelReading
         {
@@ -180,6 +192,7 @@ public sealed class ModelReading
             Members = members,
             Assemblies = assemblies,
             Paths = paths,
+            Regions = regions,
             SupportDistance = supportDistance,
             Centrality = centrality,
             Orientation = orientation,
@@ -190,7 +203,7 @@ public sealed class ModelReading
 
     /// <summary>One row per element; see <see cref="StructuralEngine.ElementFeatures"/> for the columns.</summary>
     public double[,] ElementFeatures()
-        => StructuralEngine.ElementFeatures.Raw(Geometry, Structure, SupportDistance, Centrality, Members, Assemblies, Paths);
+        => StructuralEngine.ElementFeatures.Raw(Geometry, Structure, SupportDistance, Centrality, Members, Assemblies, Paths, Regions);
 
     /// <summary>The columns of <see cref="ElementFeatures()"/>.</summary>
     public static string[] ElementFeatureNames => (string[])StructuralEngine.ElementFeatures.Names.Clone();
@@ -198,20 +211,24 @@ public sealed class ModelReading
     /// <summary>
     /// The columns of <see cref="MemberFeatures"/>, in order: what a member is like
     /// as a whole, what frames into it and what it frames into, its place in the
-    /// load path and in its assembly, and what its elements are like on average.
+    /// load path and in its assembly, what its elements are like on average, and,
+    /// appended since 2026-09, its place on the load tree and in the regions.
     /// </summary>
     public static readonly string[] MemberFeatureNames =
     {
         "Length", "Upright", "Straightness", "Elements", "Connections", "Ends Bearing", "Members Carried",
         "Flow", "Level", "Assembly Members", "Depth Position", "Along Span", "Surface", "Aspect Ratio",
         "Support Distance", "Centrality", "Closed",
+        "Path Resistance", "Tributary", "On Load Path", "Cantilever", "Region", "Cut Proximity", "Stranded",
     };
 
     /// <summary>
     /// One row per member, in model units. Upright, Aspect Ratio and Centrality are
-    /// averaged over the member's elements, weighted by size; Support Distance is
-    /// the nearest of its elements', -1 with no route or no supports; Level is -1
-    /// likewise. Nothing refers to where the member is in plan.
+    /// averaged over the member's elements, weighted by size; Support Distance and
+    /// Path Resistance are the nearest of its elements', -1 with no route or no
+    /// supports; Level is -1 likewise. Tributary is the most any element carries,
+    /// On Load Path and Cantilever whether any does. Nothing refers to where the
+    /// member is in plan.
     /// </summary>
     public double[,] MemberFeatures()
     {
@@ -247,6 +264,15 @@ public sealed class ModelReading
             rows[m, 14] = reachable.Length > 0 ? reachable.Min() : -1.0;
             rows[m, 15] = Mean(StructuralEngine.ElementFeatures.Centrality);
             rows[m, 16] = Members.Closed[m] ? 1.0 : 0.0;
+
+            var resistance = elements.Select(e => Tree.Resistance[e]).Where(double.IsFinite).ToArray();
+            rows[m, 17] = resistance.Length > 0 ? resistance.Min() : -1.0;
+            rows[m, 18] = Tree.MemberTributary[m];
+            rows[m, 19] = elements.Any(e => Tree.OnPath[e]) ? 1.0 : 0.0;
+            rows[m, 20] = Tree.MemberCantilever[m] ? 1.0 : 0.0;
+            rows[m, 21] = Regions.Side[m];
+            rows[m, 22] = Regions.CutProximity[m];
+            rows[m, 23] = Regions.Stranded[m];
         }
 
         return rows;

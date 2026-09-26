@@ -38,7 +38,9 @@ over — and the structure they describe out, stage by stage:
 | Geometry | each element's centroid, size, extent and aspect | `ElementGeometry` |
 | Members | lines that carry straight on through a joint are one physical member, straightest pair first; how much of a turn still counts is learned from the model, between 5 and 30 degrees | `PhysicalMembers` |
 | Assemblies | triangles sharing a side in one plane are one body — a truss, a braced bay; a member in two planes goes to the more upright; each body gets its own span and depth | `Assemblies` |
-| Load paths | every element's weight drained to the supports as a potential flow, bending a hundred times softer than axial; hand-overs read joint by joint, summed between assemblies, loops folded, levels counted up from the ground | `LoadPaths` |
+| Load paths | every element's weight drained to the supports as a potential flow, bending a hundred times softer than axial; hand-overs read joint by joint, summed between assemblies into a hand-over graph, loops folded, levels counted up from the ground with anything standing on the supports itself at level 0 | `LoadPaths` |
+| Load tree | the path an engineer would draw, taken from the flow so the two agree: each joint hands to the neighbour it sends most to; what depends on each joint is its tributary, and a member's is the most any part of it carries; a stretch is on the path or it braces; the least resistance from a support over the flow's own conductances, so a storey up a column costs its length and the same reach along a beam a hundred times more; a joint held up through one joint alone is cantilevered | `LoadTree` |
+| Regions | where the member graph nearly comes apart: the Fiedler vector's sign is the side of the weakest cut and its size the depth into it, the eigenvalue with it how near the cut is to a split, and what each member alone strands | `Regions` |
 | Orientation | how each line stands — level, pitched, plumb — from the model's own spread of inclinations, named by the nearest prototype rather than a cut-off | `LineOrientations` |
 
 Three things are taken as true of every structure, and nothing else: gravity

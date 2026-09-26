@@ -335,10 +335,19 @@ public sealed class PhysicalMembers
     /// <summary>
     /// The turn up to which a line carries on: midway across the gap above the lowest
     /// band of turns, kept between the two limits no model is allowed to argue with.
+    /// <para>
+    /// Turns closer than <see cref="SmallestLimit"/> to each other are one band. A
+    /// faceted curve drawn over a sine or a spline turns a little more at each bay
+    /// than the last — three, six, eight, nine degrees — and banded finely those are
+    /// four bands with the first gap at four degrees, which chains nothing and breaks
+    /// every rafter into pieces that read as resting on each other. A difference too
+    /// small to be a corner on its own cannot be the gap between carrying on and
+    /// cornering either.
+    /// </para>
     /// </summary>
     private static double Limit(double[] turns)
     {
-        var bands = ValueBands.Fit(turns, new ValueBandsOptions { Resolution = 1.0 }).Bands;
+        var bands = ValueBands.Fit(turns, new ValueBandsOptions { Resolution = SmallestLimit }).Bands;
         double learned = bands.Count > 1 ? 0.5 * (bands[0].High + bands[1].Low) : bands[0].High;
         return Math.Clamp(learned, SmallestLimit, LargestLimit);
     }

@@ -29,15 +29,15 @@ internal sealed class Models
 
     public Vec End(int line) => new(_ends[line][0], _ends[line][1], _ends[line][2]);
 
-    /// <summary>A rectilinear frame: columns at every grid point, beams both ways at every floor, pinned at the base.</summary>
-    public Models Frame(int baysX, int baysY, int storeys, double bay = 6.0, double storey = 4.0)
+    /// <summary>A rectilinear frame: columns at every grid point, beams both ways at every floor, pinned at the base, its corner at (x0, y0).</summary>
+    public Models Frame(int baysX, int baysY, int storeys, double bay = 6.0, double storey = 4.0, double x0 = 0.0, double y0 = 0.0)
     {
         for (int i = 0; i <= baysX; i++)
             for (int j = 0; j <= baysY; j++)
             {
-                Support(i * bay, j * bay, 0.0);
+                Support(x0 + i * bay, y0 + j * bay, 0.0);
                 for (int s = 0; s < storeys; s++)
-                    Line(i * bay, j * bay, s * storey, i * bay, j * bay, (s + 1) * storey);
+                    Line(x0 + i * bay, y0 + j * bay, s * storey, x0 + i * bay, y0 + j * bay, (s + 1) * storey);
             }
 
         for (int s = 1; s <= storeys; s++)
@@ -45,14 +45,24 @@ internal sealed class Models
             double z = s * storey;
             for (int j = 0; j <= baysY; j++)
                 for (int i = 0; i < baysX; i++)
-                    Line(i * bay, j * bay, z, (i + 1) * bay, j * bay, z);
+                    Line(x0 + i * bay, y0 + j * bay, z, x0 + (i + 1) * bay, y0 + j * bay, z);
 
             for (int i = 0; i <= baysX; i++)
                 for (int j = 0; j < baysY; j++)
-                    Line(i * bay, j * bay, z, i * bay, (j + 1) * bay, z);
+                    Line(x0 + i * bay, y0 + j * bay, z, x0 + i * bay, y0 + (j + 1) * bay, z);
         }
 
         return this;
+    }
+
+    /// <summary>The joint welded at a point, by the engine's numbering, or -1.</summary>
+    public static int JointAt(StructureGraph structure, double x, double y, double z, double join = 0.01)
+    {
+        var p = new Vec(x, y, z);
+        for (int j = 0; j < structure.Joints.Length; j++)
+            if (structure.Joints[j].DistanceTo(p) <= join)
+                return j;
+        return -1;
     }
 
     /// <summary>The same model turned about the vertical through the origin — lines and supports, in the same order.</summary>
@@ -93,13 +103,20 @@ internal sealed class Models
         var members = PhysicalMembers.Read(structure, geometry);
         var assemblies = Assemblies.Read(structure, members);
         var paths = LoadPaths.Trace(structure, geometry, members, assemblies);
-        return new Reading(structure, geometry, members, assemblies, paths);
+        var regions = Regions.Read(members);
+        return new Reading(structure, geometry, members, assemblies, paths, regions);
     }
 
-    public sealed record Reading(StructureGraph Structure, ElementGeometry Geometry, PhysicalMembers Members, Assemblies Assemblies, LoadPaths Paths)
+    public sealed record Reading(
+        StructureGraph Structure, ElementGeometry Geometry, PhysicalMembers Members, Assemblies Assemblies, LoadPaths Paths, Regions Regions)
     {
         /// <summary>An element's level: the hand-overs its assembly stands from the ground.</summary>
         public int Level(int element) => Paths.Level[Assemblies.Of[Members.Of[element]]];
+
+        public LoadTree Tree => Paths.Tree;
+
+        /// <summary>An element's assembly.</summary>
+        public int Assembly(int element) => Assemblies.Of[Members.Of[element]];
     }
 
     private static double[,] Rows(List<double[]> points)

@@ -16,6 +16,16 @@ namespace OtterLogic.StructuralEngine;
 /// only test applied — nothing here knows a truss from a braced bay from a lattice mast.
 /// </para>
 /// <para>
+/// A triangle's side is any straight stretch of one member between two of its
+/// joints, not only the stretch between joints next to each other along it. A
+/// purlin landing on a truss's top chord midway between two panel points puts a
+/// joint there, and read stretch by stretch the chord no longer runs from panel
+/// point to panel point, so the panel's triangle is lost and the truss comes apart
+/// into a staircase of webs — which is the reading this class exists to prevent.
+/// Read as straight stretches, the chord still closes the triangle across the
+/// purlin, and the purlin rests on the truss as it should.
+/// </para>
+/// <para>
 /// Triangles are joined only across a shared side and only while they stay in one
 /// plane, give or take the turn a faceted curve takes at each bay. The plane matters
 /// because a roof is triangulated twice: each truss in its own upright plane, and the
@@ -43,7 +53,9 @@ public sealed class Assemblies
 
     /// <summary>
     /// A triangle this thin against its longest side — a sine of about one degree — is
-    /// three lines drawn nearly over each other, not a panel.
+    /// three lines drawn nearly over each other, not a panel. The same figure says
+    /// when a run of joints along a member is straight enough to be one side: every
+    /// joint between the two ends within this share of the side's length of it.
     /// </summary>
     private const double Sliver = 0.02;
 
@@ -79,21 +91,42 @@ public sealed class Assemblies
     {
         var joints = structure.Joints;
 
-        // Line stretches between consecutive joints, and the elements drawn along each.
-        var owners = new Dictionary<(int, int), List<int>>();
+        // Every straight stretch of a line member between two of its joints, with the
+        // member it lies along and where along the run it starts and stops.
+        var owners = new Dictionary<(int, int), List<(int Member, int From, int To)>>();
         var neighbours = new SortedSet<int>[joints.Length];
-        foreach (var (element, a, b) in structure.Segments())
+        void Side(int member, int p, int q)
         {
-            if (structure.IsSurface(element) || structure.Degenerate[element] || structure.DuplicateOf[element] >= 0)
-                continue;
+            var run = members.Run[member];
+            int a = run[p], b = run[q];
+            if (a == b)
+                return;
 
             var key = (Math.Min(a, b), Math.Max(a, b));
             if (!owners.TryGetValue(key, out var list))
-                owners[key] = list = new List<int>();
-            list.Add(element);
+                owners[key] = list = new List<(int, int, int)>();
+            list.Add((member, p, q));
 
             (neighbours[a] ??= new SortedSet<int>()).Add(b);
             (neighbours[b] ??= new SortedSet<int>()).Add(a);
+        }
+
+        for (int m = 0; m < members.Count; m++)
+        {
+            int first = members.Elements[m][0];
+            if (structure.IsSurface(first) || structure.Degenerate[first] || structure.DuplicateOf[first] >= 0)
+                continue;
+
+            var run = members.Run[m];
+            for (int p = 0; p + 1 < run.Length; p++)
+            {
+                Side(m, p, p + 1);
+                for (int q = p + 2; q < run.Length && Straight(joints, run, p, q); q++)
+                    Side(m, p, q);
+            }
+
+            if (members.Closed[m] && run.Length > 2)
+                Side(m, run.Length - 1, 0);
         }
 
         // Every triangle once, corners ascending, in an order the joints alone decide.
@@ -155,10 +188,12 @@ public sealed class Assemblies
                         body[Find(sharing[q])] = low;
                     }
 
-        // Per body: how upright its plane is, and how much of each member's length it triangulates.
+        // Per body: how upright its plane is, and which stretches of each member's run
+        // it triangulates — stretches, so two sides overlapping along one chord are
+        // not counted twice.
         var area = new Dictionary<int, double>();
         var flat = new Dictionary<int, double>();
-        var covered = new Dictionary<(int Body, int Member), HashSet<(int, int)>>();
+        var covered = new Dictionary<(int Body, int Member), HashSet<int>>();
         for (int t = 0; t < triangles.Count; t++)
         {
             int root = Find(t);
@@ -167,12 +202,16 @@ public sealed class Assemblies
             flat[root] = flat.GetValueOrDefault(root) + size * Math.Abs(normal.Z);
 
             foreach (var side in new[] { (a, b), (a, c), (b, c) })
-                foreach (int element in owners[side])
+                foreach (var (member, from, to) in owners[side])
                 {
-                    var key = (root, members.Of[element]);
+                    var key = (root, member);
                     if (!covered.TryGetValue(key, out var set))
-                        covered[key] = set = new HashSet<(int, int)>();
-                    set.Add(side);
+                        covered[key] = set = new HashSet<int>();
+                    if (from < to)
+                        for (int p = from; p < to; p++)
+                            set.Add(p);
+                    else
+                        set.Add(from);
                 }
         }
 
@@ -180,7 +219,8 @@ public sealed class Assemblies
         var best = new (double Upright, double Share)[members.Count];
         foreach (var ((root, member), set) in covered.OrderBy(pair => pair.Key.Body).ThenBy(pair => pair.Key.Member))
         {
-            double share = set.Sum(side => joints[side.Item1].DistanceTo(joints[side.Item2])) / members.Length[member];
+            var run = members.Run[member];
+            double share = set.Sum(p => joints[run[p]].DistanceTo(joints[run[(p + 1) % run.Length]])) / members.Length[member];
             if (share < Coverage)
                 continue;
 
@@ -235,6 +275,25 @@ public sealed class Assemblies
             DepthPosition = depth,
             AlongSpan = alongSpan,
         };
+    }
+
+    /// <summary>
+    /// Whether the run from joint <paramref name="p"/> to joint <paramref name="q"/>
+    /// is one straight side: every joint between them lies within <see cref="Sliver"/>
+    /// of the chord, as a share of its length.
+    /// </summary>
+    private static bool Straight(Vec[] joints, int[] run, int p, int q)
+    {
+        var chord = joints[run[q]] - joints[run[p]];
+        double length = chord.Length;
+        if (length <= 0.0)
+            return false;
+
+        for (int i = p + 1; i < q; i++)
+            if ((joints[run[i]] - joints[run[p]]).Cross(chord).Length > Sliver * length * length)
+                return false;
+
+        return true;
     }
 
     /// <summary>

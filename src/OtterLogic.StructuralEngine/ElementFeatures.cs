@@ -26,7 +26,10 @@ public static class ElementFeatures
 {
     /// <summary>
     /// The columns, in order. The first twelve are as they have always been, in the
-    /// same places; what the members, assemblies and load paths add comes after.
+    /// same places; what the members, assemblies and load paths add comes after, and
+    /// after those, since 2026-09, what the load tree and the regions add. Columns
+    /// are only ever appended, so a definition reading them by position still reads
+    /// what it did.
     /// </summary>
     public static readonly string[] Names =
     {
@@ -34,7 +37,14 @@ public static class ElementFeatures
         "Connections", "Support Distance", "Centrality", "Surface", "Aspect Ratio",
         "Member Length", "Member Straightness", "Member Connections", "Ends Bearing", "Members Carried",
         "Flow", "Level", "Assembly Members", "Depth Position", "Along Span",
+        "Path Resistance", "Tributary", "On Load Path", "Cantilever", "Region", "Cut Proximity", "Stranded",
     };
+
+    /// <summary>Column of the least resistance from a support over the flow's conductances, or -1.</summary>
+    public const int Resistance = 22;
+
+    /// <summary>Column of the share of the model's weight the element carries on the load tree, 0 to 1.</summary>
+    public const int Tributary = 23;
 
     /// <summary>Column of the element's share along z: how upright it stands.</summary>
     public const int ExtentZ = 6;
@@ -54,13 +64,17 @@ public static class ElementFeatures
     /// <summary>
     /// The features, per element, in model units. Support Distance is the route
     /// length along the elements to the nearest support, and -1 where there is no
-    /// such route or no supports were given; Level is -1 likewise. The member and
-    /// assembly columns repeat down every element of the member.
+    /// such route or no supports were given; Level and Path Resistance are -1
+    /// likewise. The member and assembly columns repeat down every element of the
+    /// member, and Region, Cut Proximity and Stranded are the member's.
     /// </summary>
+    /// <param name="regions">Where the member graph nearly comes apart; null reads it here.</param>
     public static double[,] Raw(
         ElementGeometry geometry, StructureGraph structure, double[] supportDistance, double[] centrality,
-        PhysicalMembers members, Assemblies assemblies, LoadPaths paths)
+        PhysicalMembers members, Assemblies assemblies, LoadPaths paths, Regions? regions = null)
     {
+        regions ??= Regions.Read(members);
+        var tree = paths.Tree;
         int n = structure.ElementCount;
         var features = new double[n, Names.Length];
 
@@ -93,6 +107,13 @@ public static class ElementFeatures
             features[e, 19] = assemblies.Members[assembly].Length;
             features[e, 20] = assemblies.DepthPosition[member];
             features[e, 21] = assemblies.AlongSpan[member];
+            features[e, Resistance] = double.IsFinite(tree.Resistance[e]) ? tree.Resistance[e] : -1.0;
+            features[e, Tributary] = tree.ElementTributary[e];
+            features[e, 24] = tree.OnPath[e] ? 1.0 : 0.0;
+            features[e, 25] = tree.Cantilever[e] ? 1.0 : 0.0;
+            features[e, 26] = regions.Side[member];
+            features[e, 27] = regions.CutProximity[member];
+            features[e, 28] = regions.Stranded[member];
         }
 
         return features;
